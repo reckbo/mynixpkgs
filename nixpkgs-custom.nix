@@ -8,6 +8,7 @@ let
       SlicerExecutionModel = callPackage ./SlicerExecutionModel { };
       DWIConvert = callPackage ./DWIConvert { };
       teem = callPackage ./teem { };
+      ConvertBetweenFileFormats = callPackage ./ConvertBetweenFileFormats { };
   };
 in
   pkgs // self
