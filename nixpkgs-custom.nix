@@ -9,6 +9,7 @@ let
       DWIConvert = callPackage ./DWIConvert { };
       teem = callPackage ./teem { };
       ConvertBetweenFileFormats = callPackage ./ConvertBetweenFileFormats { };
+      Slicer = callPackage ./Slicer { };
   };
 in
   pkgs // self
