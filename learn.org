@@ -1,0 +1,126 @@
+* Nix Pills
+
+nix-store -q --references `which nix-repl`
+nix-store -q --referrers `which nix-repl`
+
+** manifest.nix
+The manifest.nix file contains metadata about the environment, such as which
+derivations are installed, so that nix-env can list them, upgrade or remove
+them.  The current manifest.nix can be found in ~/.nix-profile/manifest.nix.
+** closure
+Lists all dependencies.
+nix-store -qR `which man`
+nix-store -q --tree `which man`
+
+* Channels
+
+nix-channel --list
+
+* Nix-repl
+
+:?  lists commands
+:b  build derivation
+
+* Derivation
+
+d = derivation { name = "myname"; builder = "mybuilder"; system = "mysystem"; }
+
+$(nix-build --no-out-link '<nixpkgs>' -A haskellPackages.pretty-show)/bin/ppsh
+
+A .drv file has:
+
+1. The output paths (they can be multiple ones). By default nix creates one out path called "out".
+2. The list of input derivations. It's empty because we are not referring to any other derivation. Otherwise, there would a list of other .drv files.
+3. The system and the builder executable (yes, it's a fake one).
+4. Then a list of environment variables passed to the builder.
+
+nix-store -r /nix/store/z3hhlxbckx4g3n9sw91nnvlkjvyw754p-myname.drv
+
+d = derivation { name = "myname"; builder = "mybuilder"; system = builtins.currentSystem; }
+
+builtins.attrNames d
+builtins.toString d
+d.outPath
+
+Nix does the "set to string conversion" as long as there is the outPath attribute (much like a toString method in other languages):
+
+:l <nixpkgs>
+coreutils
+builtins.toString coreutils
+"${d}"
+d = derivation { name = "myname"; builder = "${coreutils}/bin/true"; system = builtins.currentSystem; }
+
+Evaluation:
+`nix-instantiate` creates drv files from nix derivations (top level of files must be single, set, or list).
+Realize/Build:
+nix-store -r
+nix-store -r $(nix-instantiate ./test.nix) # This is essentially what nix-build does.
+To test whether a previously built derivation is deterministic:
+nix-build -r '<nixpkgs>' -A hello --check -K
+
+nix-build does 3 things:
+1) calls nix-instantiate
+2) calls nix-store -r
+3) makes symlink
+
+** working example: declare
+
+d = derivation { name = "foo"; builder = "${bash}/bin/bash"; args = [ ./builder.sh ]; system = builtins.currentSystem; }
+
+** working example: simple
+
+d = derivation {
+  name = "simple";
+  builder = "${bash}/bin/bash";
+  args = [ ./simple_builder.sh ];
+  gcc = gcc;
+  coreutils = coreutils;
+  src = ./simple.c;
+  system = builtins.currentSystem; }
+
+Every attribute is converted to a string, hence gcc and coreutils are converted
+to their outPath's. Same for src.
+
+* Runtime dependencies
+
+NAR - nix archive, a deterministic archive format
+To create NAR archives, it's possible to use nix-store --dump and nix-store
+--restore. Those two commands work regardless of /nix/store.
+
+** Detection
+1. Dump the derivation as NAR, a serialization of the derivation output. Works fine whether it's a single file or a directory.
+2. For each build dependency .drv and its relative out path, search the contents of the NAR for this out path.
+3. If found, then it's a runtime dependency.
+
+nix-instantiate hello.nix
+/nix/store/z77vn965a59irqnrrjvbspiyl2rph0jp-hello.drv
+$ nix-store -r /nix/store/z77vn965a59irqnrrjvbspiyl2rph0jp-hello.drv
+/nix/store/a42k52zwv6idmf50r9lps1nzwq9khvpf-hello
+$ nix-store -q --references /nix/store/a42k52zwv6idmf50r9lps1nzwq9khvpf-hello
+/nix/store/94n64qy99ja0vgbkf675nyk39g9b978n-glibc-2.19
+/nix/store/8jm0wksask7cpf85miyakihyfch1y21q-gcc-4.8.3
+/nix/store/a42k52zwv6idmf50r9lps1nzwq9khvpf-hello
+
+strings result/bin/hello|grep gcc
+ld rpath: list of directories where libraries can be found at runtime
+patchelf: reduces rpath
+strip: strips debugging information
+
+Oh Nix added gcc because its out path is mentioned in the "hello" binary. Why is
+that? That's the ld rpath. It's the list of directories where libraries can be
+found at runtime. In other distributions, this is usually not abused. But in
+Nix, we have to refer to particular versions of libraries, thus the rpath has an
+important role. The build process adds that gcc lib path thinking it may be
+useful at runtime, but really it's not. How do we get rid of it? Nix authors
+have written another magical tool called patchelf, which is able to reduce the
+rpath to the paths that are really used by the binary.
+
+Not only, even after reducing the rpath the hello binary would still depend upon
+gcc. Because of debugging information. For that, the well known strip can be
+used.
+
+ldd result/bin/hello
+
+* Nix-shell
+
+nix-shell --pure -p bashInteractive
